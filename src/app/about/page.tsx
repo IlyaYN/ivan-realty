@@ -42,7 +42,7 @@ export default function AboutPage() {
       if (data) {
         const dataObj: any = {};
         data.forEach((item: any) => { dataObj[item.key] = item.value; });
-        setAboutData(prev => ({ ...prev, ...dataObj }));
+        setAboutData((prev: any) => ({ ...prev, ...dataObj }));
       }
     }
     loadAboutData();
