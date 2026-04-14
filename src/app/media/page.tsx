@@ -36,7 +36,7 @@ const fetchVK = (method: string, params: Record<string, any>) => {
       const scriptElement = document.getElementById(callbackName);
       if (scriptElement) scriptElement.remove();
     };
-    const searchParams = new URLSearchParams({ ...params, access_token: VK_TOKEN, v: '5.131', callback: callbackName });
+    const searchParams = new URLSearchParams({ ...params, access_token: VK_TOKEN || '', v: '5.131', callback: callbackName });
     const script = document.createElement('script');
     script.id = callbackName;
     script.src = `https://api.vk.com/method/${method}?${searchParams.toString()}`;
