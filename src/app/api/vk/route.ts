@@ -15,7 +15,7 @@ export async function GET(request: Request) {
   });
 
   // Берем токен из твоего "сейфа" (.env)
-  vkParams.append('access_token', process.env.NEXT_PUBLIC_VK_TOKEN || '');
+  vkParams.append('access_token', process.env.VK_TOKEN || '');
   vkParams.append('v', '5.131');
 
   try {
