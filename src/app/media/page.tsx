@@ -5,7 +5,6 @@ import Link from 'next/link';
 
 // БЕРЕМ КЛЮЧИ ИЗ СЕЙФА
 const SPREADSHEET_ID = process.env.NEXT_PUBLIC_SPREADSHEET_ID;
-const VK_TOKEN = process.env.NEXT_PUBLIC_VK_TOKEN;
 const VK_DOMAIN = process.env.NEXT_PUBLIC_VK_DOMAIN;
 
 async function fetchSheetData(sheetName: string) {
@@ -26,22 +25,19 @@ async function fetchSheetData(sheetName: string) {
   }
 }
 
-const fetchVK = (method: string, params: Record<string, any>) => {
-  return new Promise<any>((resolve) => {
-    if (typeof window === 'undefined') return;
-    const callbackName = 'vk_cb_' + Math.round(1000000 * Math.random());
-    (window as any)[callbackName] = (data: any) => {
-      resolve(data);
-      delete (window as any)[callbackName];
-      const scriptElement = document.getElementById(callbackName);
-      if (scriptElement) scriptElement.remove();
-    };
-    const searchParams = new URLSearchParams({ ...params, access_token: VK_TOKEN || '', v: '5.131', callback: callbackName });
-    const script = document.createElement('script');
-    script.id = callbackName;
-    script.src = `https://api.vk.com/method/${method}?${searchParams.toString()}`;
-    document.head.appendChild(script);
-  });
+const fetchVK = async (method: string, params: Record<string, any>) => {
+  const searchParams = new URLSearchParams({ method, ...params });
+  try {
+    // Теперь мы обращаемся не к ВК напрямую, а к нашему новому скрытому файлу
+    const res = await fetch(`/api/vk?${searchParams.toString()}`);
+    const data = await res.json();
+    
+    // Возвращаем ответ в виде Promise, как и ждет остальной код
+    return new Promise((resolve) => resolve(data));
+  } catch (error) {
+    console.error("Ошибка загрузки ВК:", error);
+    return null;
+  }
 };
 
 export default function MediaPage() {
