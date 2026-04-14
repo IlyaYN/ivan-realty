@@ -25,7 +25,7 @@ async function fetchSheetData(sheetName: string) {
   }
 }
 
-const fetchVK = async (method: string, params: Record<string, any>) => {
+const fetchVK = async (method: string, params: Record<string, any>): Promise<any> => {
   const searchParams = new URLSearchParams({ method, ...params });
   try {
     // Теперь мы обращаемся не к ВК напрямую, а к нашему новому скрытому файлу
