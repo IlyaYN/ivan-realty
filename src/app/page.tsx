@@ -93,7 +93,7 @@ export default function Home() {
         <div className="ivan-glow-safe"></div>
         <img src="/ivan.webp" className="ivan-image" alt="Иван Нижник" />
         
-        <div className="social-qr-container desktop-only fade-in-4">
+        <div className="social-qr-container desktop-only">
           {socials.map((soc, i) => (
             <div key={i} className="qr-card">
               <span className="qr-title">{soc.name}</span>
@@ -113,7 +113,7 @@ export default function Home() {
       </div>
 
       <div className="main-scroll">
-        <div className="partner-box fade-in-4">
+        <div className="partner-box">
           <div className="partner-box-inner">
             <svg style={{ width: '26px', height: '26px', color: '#ea580c', flexShrink: 0 }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
@@ -126,7 +126,7 @@ export default function Home() {
           </Link>
         </div>
 
-        <div className="text-block fade-in-1">
+        <div className="text-block">
           <div className="expert-badge"><div className="expert-dot"></div>{config.hero_badge}</div>
           <h1 className="main-title">{config.hero_title}</h1>
           <p className="main-subtitle">{config.hero_subtitle}</p>
@@ -137,7 +137,7 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="row-container fade-in-2">
+        <div className="row-container" style={{ marginTop: '20px', marginBottom: '20px' }}>
           <h2 className="block-title">Направления работы</h2>
           <div className="scroll-row">
             {services.map((s, i) => (
@@ -150,7 +150,7 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="row-container fade-in-3" style={{ marginTop: '20px', marginBottom: '20px' }}>
+        <div className="row-container" style={{ marginTop: '20px', marginBottom: '20px' }}>
           <h2 className="block-title">Медиа</h2>
           <div className="media-row">
             {media.map((m, i) => (
@@ -169,7 +169,7 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="row-container mobile-only fade-in-4" style={{ marginTop: '20px', marginBottom: '20px' }}>
+        <div className="row-container mobile-only" style={{ marginTop: '20px', marginBottom: '20px' }}>
           <h2 className="block-title">Сообщества и Связь</h2>
           <div className="scroll-row">
             {socials.map((soc, i) => (
@@ -192,7 +192,6 @@ export default function Home() {
 
       </div>
 
-      {/* ИСПРАВЛЕННЫЙ КРЕСТИК: Теперь он жестко привязан к картинке внутри контента */}
       {zoomedQr && (
         <div className="qr-zoom-overlay" onClick={() => setZoomedQr(null)}>
           <div className="qr-zoom-content" onClick={(e) => e.stopPropagation()} style={{ position: 'relative' }}>
