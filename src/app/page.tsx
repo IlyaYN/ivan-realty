@@ -91,7 +91,7 @@ export default function Home() {
     <>
       <div className="ivan-container">
         <div className="ivan-glow-safe"></div>
-        <img src="/ivan.webp" className="ivan-image" alt="Иван Нижник" />
+        <img src="/ivan.webp" className="ivan-image" alt="Нижник Иван" />
         
         <div className="social-qr-container desktop-only fade-in-4">
           {socials.map((soc, i) => (
