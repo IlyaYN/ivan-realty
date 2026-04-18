@@ -28,11 +28,8 @@ async function fetchSheetData(sheetName: string) {
 const fetchVK = async (method: string, params: Record<string, any>): Promise<any> => {
   const searchParams = new URLSearchParams({ method, ...params });
   try {
-    // Теперь мы обращаемся не к ВК напрямую, а к нашему новому скрытому файлу
     const res = await fetch(`/api/vk?${searchParams.toString()}`);
     const data = await res.json();
-    
-    // Возвращаем ответ в виде Promise, как и ждет остальной код
     return new Promise((resolve) => resolve(data));
   } catch (error) {
     console.error("Ошибка загрузки ВК:", error);
@@ -49,13 +46,19 @@ export default function MediaPage() {
   const [marketLoading, setMarketLoading] = useState(false);
   const [ownerId, setOwnerId] = useState<string | null>(null);
 
+  // --- НОВЫЕ СОСТОЯНИЯ ДЛЯ КНОПКИ "ПОКАЗАТЬ ЕЩЕ" ---
+  const [offsets, setOffsets] = useState({ wall: 15, market: 15, video: 15 });
+  const [hasMore, setHasMore] = useState({ wall: true, market: true, video: true });
+  const [loadingMore, setLoadingMore] = useState<'wall' | 'market' | 'video' | null>(null);
+  // ------------------------------------------------
+
   const [expandedText, setExpandedText] = useState<Record<string, boolean>>({});
   const [formData, setFormData] = useState({ name: '', phone: '', comment: '', context: 'Общий вопрос из раздела Медиа', agreement: false });
   const [formStatus, setFormStatus] = useState<'idle' | 'loading' | 'success'>('idle');
   
   // Состояния для попапов
   const [zoomedImg, setZoomedImg] = useState<string | null>(null);
-  const [zoomedVideo, setZoomedVideo] = useState<string | null>(null); // Новое состояние для видеоплеера
+  const [zoomedVideo, setZoomedVideo] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -86,12 +89,24 @@ export default function MediaPage() {
         const videoRes = await fetchVK('video.get', { owner_id: id, count: 15, extended: 1 });
         const albumsRes = await fetchVK('market.getAlbums', { owner_id: id, count: 10 });
 
+        const wallItems = wallRes?.response?.items || [];
+        const marketItems = marketRes?.response?.items || [];
+        const videoItems = videoRes?.response?.items || [];
+
         setVkData({
-          wall: wallRes?.response?.items || [],
-          market: marketRes?.response?.items || [],
-          video: videoRes?.response?.items || [],
+          wall: wallItems,
+          market: marketItems,
+          video: videoItems,
           albums: albumsRes?.response?.items || []
         });
+
+        // Проверяем, есть ли еще объекты для загрузки
+        setHasMore({
+          wall: wallItems.length === 15,
+          market: marketItems.length === 15,
+          video: videoItems.length === 15
+        });
+
       } catch (e) {
         console.error("Ошибка ВК:", e);
       } finally {
@@ -106,14 +121,55 @@ export default function MediaPage() {
     setSelectedAlbum(albumId);
     setMarketLoading(true);
     try {
-      const params: any = { owner_id: ownerId, count: 20, extended: 1 };
+      const params: any = { owner_id: ownerId, count: 15, offset: 0, extended: 1 };
       if (albumId) params.album_id = albumId;
       const marketRes = await fetchVK('market.get', params);
-      setVkData(prev => ({ ...prev, market: marketRes?.response?.items || [] }));
+      const newItems = marketRes?.response?.items || [];
+      
+      setVkData(prev => ({ ...prev, market: newItems }));
+      setOffsets(prev => ({ ...prev, market: 15 }));
+      setHasMore(prev => ({ ...prev, market: newItems.length === 15 }));
     } catch (e) {} finally {
       setMarketLoading(false);
     }
   };
+
+  // --- ФУНКЦИЯ ПОДГРУЗКИ НОВЫХ ЭЛЕМЕНТОВ (ПАГИНАЦИЯ) ---
+  const loadMoreItems = async (type: 'wall' | 'market' | 'video') => {
+    if (!ownerId) return;
+    setLoadingMore(type);
+    try {
+      const currentOffset = offsets[type];
+      let params: any = { owner_id: ownerId, count: 15, offset: currentOffset, extended: 1 };
+
+      if (type === 'market' && selectedAlbum !== null) {
+        params.album_id = selectedAlbum;
+      }
+
+      let method = '';
+      if (type === 'wall') method = 'wall.get';
+      if (type === 'market') method = 'market.get';
+      if (type === 'video') method = 'video.get';
+
+      const res = await fetchVK(method, params);
+      const newItems = res?.response?.items || [];
+
+      setVkData(prev => ({
+        ...prev,
+        [type]: [...prev[type], ...newItems]
+      }));
+
+      setOffsets(prev => ({ ...prev, [type]: currentOffset + 15 }));
+      if (newItems.length < 15) {
+        setHasMore(prev => ({ ...prev, [type]: false }));
+      }
+    } catch (e) {
+      console.error("Ошибка при подгрузке элементов:", e);
+    } finally {
+      setLoadingMore(null);
+    }
+  };
+  // ----------------------------------------------------
 
   const scrollToForm = (contextText: string) => {
     setFormData(prev => ({ ...prev, context: contextText }));
@@ -248,151 +304,195 @@ export default function MediaPage() {
               )}
               
               {marketLoading ? <div style={{ color: '#a1a1aa', textAlign: 'center', padding: '40px' }}>Загрузка категории...</div> : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '20px' }}>
-                  {vkData.market.length > 0 ? vkData.market.map((item, i) => {
-                    const toggleKey = `market_${item.id}`;
-                    const isExpanded = expandedText[toggleKey];
-                    const highResPhotoUrl = getMarketHighResPhoto(item);
-                    
-                    return (
-                      <div key={i} style={cardStyle}>
-                        <div 
-                          style={{ width: '100%', aspectRatio: '16/9', background: '#1e2026', position: 'relative', cursor: 'zoom-in' }}
-                          onClick={() => setZoomedImg(highResPhotoUrl)}
-                        >
-                          <img src={item.thumb_photo} alt={item?.title || 'Объект'} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                          <div style={{ position: 'absolute', bottom: '6px', right: '6px', background: '#ea580c', color: '#fff', padding: '4px 8px', borderRadius: '50px', fontSize: '12px', fontWeight: '800' }}>{item?.price?.text || ''}</div>
-                        </div>
-                        <div style={{ padding: '15px', display: 'flex', flexDirection: 'column', flex: 1 }}>
-                          <h3 style={{ fontSize: '15px', color: '#fff', fontWeight: '700', marginBottom: '8px', lineHeight: '1.3' }}>{item?.title || 'Без названия'}</h3>
-                          
-                          <p style={{ fontSize: '12px', color: '#a1a1aa', lineHeight: '1.5', display: isExpanded ? 'block' : '-webkit-box', WebkitLineClamp: isExpanded ? 'unset' : 3, WebkitBoxOrient: 'vertical', overflow: isExpanded ? 'visible' : 'hidden', marginBottom: '5px', whiteSpace: 'pre-wrap' }}>
-                            {item?.description || ''}
-                          </p>
-                          
-                          {item?.description && item.description.length > 80 && (
-                            <button onClick={() => toggleText(toggleKey)} style={{ background: 'none', border: 'none', color: '#ea580c', fontSize: '11px', cursor: 'pointer', textAlign: 'left', padding: 0, marginBottom: '15px', fontWeight: '600' }}>
-                              {isExpanded ? 'Свернуть описание ↑' : 'Читать полностью ↓'}
-                            </button>
-                          )}
-                          
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: 'auto' }}>
-                            <button onClick={() => scrollToForm(`Интересует объект: ${item?.title || ''}`)} className="btn-solid" style={{ width: '100%', padding: '8px', fontSize: '11px' }}>Узнать подробности</button>
-                            <a href={`https://vk.com/market${item.owner_id}?w=product${item.owner_id}_${item.id}`} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>
-                              <button className="btn-hollow" style={{ width: '100%', padding: '8px', fontSize: '11px', border: '1px solid rgba(255,255,255,0.2)' }}>Смотреть в сообществе ВК ↗</button>
-                            </a>
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '20px' }}>
+                    {vkData.market.length > 0 ? vkData.market.map((item, i) => {
+                      const toggleKey = `market_${item.id}`;
+                      const isExpanded = expandedText[toggleKey];
+                      const highResPhotoUrl = getMarketHighResPhoto(item);
+                      
+                      return (
+                        <div key={i} style={cardStyle}>
+                          <div 
+                            style={{ width: '100%', aspectRatio: '16/9', background: '#1e2026', position: 'relative', cursor: 'zoom-in' }}
+                            onClick={() => setZoomedImg(highResPhotoUrl)}
+                          >
+                            <img src={item.thumb_photo} alt={item?.title || 'Объект'} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            <div style={{ position: 'absolute', bottom: '6px', right: '6px', background: '#ea580c', color: '#fff', padding: '4px 8px', borderRadius: '50px', fontSize: '12px', fontWeight: '800' }}>{item?.price?.text || ''}</div>
+                          </div>
+                          <div style={{ padding: '15px', display: 'flex', flexDirection: 'column', flex: 1 }}>
+                            <h3 style={{ fontSize: '15px', color: '#fff', fontWeight: '700', marginBottom: '8px', lineHeight: '1.3' }}>{item?.title || 'Без названия'}</h3>
+                            
+                            <p style={{ fontSize: '12px', color: '#a1a1aa', lineHeight: '1.5', display: isExpanded ? 'block' : '-webkit-box', WebkitLineClamp: isExpanded ? 'unset' : 3, WebkitBoxOrient: 'vertical', overflow: isExpanded ? 'visible' : 'hidden', marginBottom: '5px', whiteSpace: 'pre-wrap' }}>
+                              {item?.description || ''}
+                            </p>
+                            
+                            {item?.description && item.description.length > 80 && (
+                              <button onClick={() => toggleText(toggleKey)} style={{ background: 'none', border: 'none', color: '#ea580c', fontSize: '11px', cursor: 'pointer', textAlign: 'left', padding: 0, marginBottom: '15px', fontWeight: '600' }}>
+                                {isExpanded ? 'Свернуть описание ↑' : 'Читать полностью ↓'}
+                              </button>
+                            )}
+                            
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: 'auto' }}>
+                              <button onClick={() => scrollToForm(`Интересует объект: ${item?.title || ''}`)} className="btn-solid" style={{ width: '100%', padding: '8px', fontSize: '11px' }}>Узнать подробности</button>
+                              <a href={`https://vk.com/market${item.owner_id}?w=product${item.owner_id}_${item.id}`} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>
+                                <button className="btn-hollow" style={{ width: '100%', padding: '8px', fontSize: '11px', border: '1px solid rgba(255,255,255,0.2)' }}>Смотреть в сообществе ВК ↗</button>
+                              </a>
+                            </div>
                           </div>
                         </div>
+                      );
+                    }) : <div style={{ color: '#a1a1aa', textAlign: 'center', gridColumn: '1 / -1', padding: '40px' }}>В этой категории пока нет объектов.</div>}
+                  </div>
+                  
+                  {/* КНОПКА ПОКАЗАТЬ ЕЩЕ ДЛЯ ВИТРИНЫ */}
+                  {hasMore.market && !marketLoading && vkData.market.length > 0 && (
+                    <div style={{ textAlign: 'center', marginTop: '30px' }}>
+                      <button 
+                        onClick={() => loadMoreItems('market')} 
+                        disabled={loadingMore === 'market'}
+                        style={{ padding: '12px 24px', borderRadius: '12px', border: '1px solid rgba(234, 88, 12, 0.5)', color: '#ea580c', cursor: 'pointer', background: 'transparent', fontWeight: '600' }}
+                      >
+                        {loadingMore === 'market' ? 'Загрузка...' : 'Показать ещё объекты ↓'}
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )}
+
+          {/* ВКЛАДКА: ВИДЕО И КЛИПЫ */}
+          {activeTab === 'video' && (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '20px' }}>
+                {vkData.video.length > 0 ? vkData.video.map((vid, i) => {
+                  const coverUrl = vid.image && vid.image.length > 0 ? vid.image[vid.image.length - 1].url : '';
+                  const toggleKey = `video_${vid.id}`;
+                  const isExpanded = expandedText[toggleKey];
+                  return (
+                    <div key={i} style={cardStyle}>
+                      <div 
+                        onClick={() => {
+                          const playerUrl = vid.player || `https://vk.com/video_ext.php?oid=${vid.owner_id}&id=${vid.id}&hd=2`;
+                          setZoomedVideo(playerUrl);
+                        }}
+                        style={{ width: '100%', aspectRatio: '16/9', background: '#1e2026', position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer' }}
+                      >
+                        {coverUrl && <img src={coverUrl} alt={vid?.title || 'Видео'} style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.7 }} />}
+                        <div style={{ position: 'absolute', width: '50px', height: '50px', background: '#ea580c', borderRadius: '50%', display: 'flex', justifyContent: 'center', alignItems: 'center', paddingLeft: '4px', boxShadow: '0 4px 15px rgba(0,0,0,0.5)' }}>
+                          <svg width="20" height="20" viewBox="0 0 24 24" fill="#fff"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                        </div>
+                        {vid.duration > 0 && <div style={{ position: 'absolute', bottom: '6px', right: '6px', background: 'rgba(0,0,0,0.8)', color: '#fff', padding: '3px 6px', borderRadius: '4px', fontSize: '11px', fontWeight: '600' }}>{Math.floor(vid.duration / 60)}:{(vid.duration % 60).toString().padStart(2, '0')}</div>}
                       </div>
-                    );
-                  }) : <div style={{ color: '#a1a1aa', textAlign: 'center', gridColumn: '1 / -1', padding: '40px' }}>В этой категории пока нет объектов.</div>}
+                      <div style={{ padding: '15px', display: 'flex', flexDirection: 'column', flex: 1 }}>
+                        <h3 style={{ fontSize: '14px', color: '#fff', fontWeight: '700', lineHeight: '1.4', marginBottom: '8px' }}>{vid?.title || 'Без названия'}</h3>
+                        
+                        {vid?.description && (
+                          <>
+                            <p style={{ fontSize: '12px', color: '#a1a1aa', lineHeight: '1.5', display: isExpanded ? 'block' : '-webkit-box', WebkitLineClamp: isExpanded ? 'unset' : 2, WebkitBoxOrient: 'vertical', overflow: isExpanded ? 'visible' : 'hidden', marginBottom: '5px', whiteSpace: 'pre-wrap' }}>
+                              {vid.description}
+                            </p>
+                            {vid.description.length > 60 && (
+                              <button onClick={() => toggleText(toggleKey)} style={{ background: 'none', border: 'none', color: '#ea580c', fontSize: '11px', cursor: 'pointer', textAlign: 'left', padding: 0, marginBottom: '15px', fontWeight: '600' }}>
+                                {isExpanded ? 'Свернуть ↑' : 'Читать полностью ↓'}
+                              </button>
+                            )}
+                          </>
+                        )}
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: 'auto' }}>
+                          <button onClick={() => scrollToForm(`Консультация по видео: ${vid?.title || ''}`)} className="btn-solid" style={{ width: '100%', padding: '8px', fontSize: '11px' }}>Задать вопрос</button>
+                          <a href={`https://vk.com/video${vid.owner_id}_${vid.id}`} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>
+                            <button className="btn-hollow" style={{ width: '100%', padding: '8px', fontSize: '11px', border: '1px solid rgba(255,255,255,0.2)' }}>Смотреть в сообществе ВК ↗</button>
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                }) : <div style={{ color: '#a1a1aa', textAlign: 'center', gridColumn: '1 / -1' }}>Видео пока нет.</div>}
+              </div>
+
+              {/* КНОПКА ПОКАЗАТЬ ЕЩЕ ДЛЯ ВИДЕО */}
+              {hasMore.video && vkData.video.length > 0 && (
+                <div style={{ textAlign: 'center', marginTop: '30px' }}>
+                  <button 
+                    onClick={() => loadMoreItems('video')} 
+                    disabled={loadingMore === 'video'}
+                    style={{ padding: '12px 24px', borderRadius: '12px', border: '1px solid rgba(234, 88, 12, 0.5)', color: '#ea580c', cursor: 'pointer', background: 'transparent', fontWeight: '600' }}
+                  >
+                    {loadingMore === 'video' ? 'Загрузка...' : 'Показать ещё видео ↓'}
+                  </button>
                 </div>
               )}
             </>
           )}
 
-          {/* ВКЛАДКА: ВИДЕО И КЛИПЫ (ИСПРАВЛЕНИЕ: Открываем плеер ВНУТРИ сайта) */}
-          {activeTab === 'video' && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '20px' }}>
-              {vkData.video.length > 0 ? vkData.video.map((vid, i) => {
-                const coverUrl = vid.image && vid.image.length > 0 ? vid.image[vid.image.length - 1].url : '';
-                const toggleKey = `video_${vid.id}`;
-                const isExpanded = expandedText[toggleKey];
-                return (
-                  <div key={i} style={cardStyle}>
-                    <div 
-                      onClick={() => {
-                        // Используем iframe-ссылку, которую отдает ВК, либо собираем её вручную
-                        const playerUrl = vid.player || `https://vk.com/video_ext.php?oid=${vid.owner_id}&id=${vid.id}&hd=2`;
-                        setZoomedVideo(playerUrl);
-                      }}
-                      style={{ width: '100%', aspectRatio: '16/9', background: '#1e2026', position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'center', cursor: 'pointer' }}
-                    >
-                      {coverUrl && <img src={coverUrl} alt={vid?.title || 'Видео'} style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.7 }} />}
-                      <div style={{ position: 'absolute', width: '50px', height: '50px', background: '#ea580c', borderRadius: '50%', display: 'flex', justifyContent: 'center', alignItems: 'center', paddingLeft: '4px', boxShadow: '0 4px 15px rgba(0,0,0,0.5)' }}>
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="#fff"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                      </div>
-                      {vid.duration > 0 && <div style={{ position: 'absolute', bottom: '6px', right: '6px', background: 'rgba(0,0,0,0.8)', color: '#fff', padding: '3px 6px', borderRadius: '4px', fontSize: '11px', fontWeight: '600' }}>{Math.floor(vid.duration / 60)}:{(vid.duration % 60).toString().padStart(2, '0')}</div>}
-                    </div>
-                    <div style={{ padding: '15px', display: 'flex', flexDirection: 'column', flex: 1 }}>
-                      <h3 style={{ fontSize: '14px', color: '#fff', fontWeight: '700', lineHeight: '1.4', marginBottom: '8px' }}>{vid?.title || 'Без названия'}</h3>
-                      
-                      {vid?.description && (
-                        <>
-                          <p style={{ fontSize: '12px', color: '#a1a1aa', lineHeight: '1.5', display: isExpanded ? 'block' : '-webkit-box', WebkitLineClamp: isExpanded ? 'unset' : 2, WebkitBoxOrient: 'vertical', overflow: isExpanded ? 'visible' : 'hidden', marginBottom: '5px', whiteSpace: 'pre-wrap' }}>
-                            {vid.description}
-                          </p>
-                          {vid.description.length > 60 && (
-                            <button onClick={() => toggleText(toggleKey)} style={{ background: 'none', border: 'none', color: '#ea580c', fontSize: '11px', cursor: 'pointer', textAlign: 'left', padding: 0, marginBottom: '15px', fontWeight: '600' }}>
-                              {isExpanded ? 'Свернуть ↑' : 'Читать полностью ↓'}
-                            </button>
-                          )}
-                        </>
-                      )}
-
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: 'auto' }}>
-                        <button onClick={() => scrollToForm(`Консультация по видео: ${vid?.title || ''}`)} className="btn-solid" style={{ width: '100%', padding: '8px', fontSize: '11px' }}>Задать вопрос</button>
-                        <a href={`https://vk.com/video${vid.owner_id}_${vid.id}`} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>
-                          <button className="btn-hollow" style={{ width: '100%', padding: '8px', fontSize: '11px', border: '1px solid rgba(255,255,255,0.2)' }}>Смотреть в сообществе ВК ↗</button>
-                        </a>
-                      </div>
-                    </div>
-                  </div>
-                )
-              }) : <div style={{ color: '#a1a1aa', textAlign: 'center', gridColumn: '1 / -1' }}>Видео пока нет.</div>}
-            </div>
-          )}
-
           {/* ВКЛАДКА: НОВОСТИ */}
           {activeTab === 'wall' && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '20px' }}>
-              {vkData.wall.length > 0 ? vkData.wall.map((post, i) => {
-                const photoUrl = getSafeHighResPhoto(post);
-                const postText = getSafeText(post);
-                const toggleKey = `wall_${post.id}`;
-                const isExpanded = expandedText[toggleKey];
-                
-                if (!postText && !photoUrl) return null;
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '20px' }}>
+                {vkData.wall.length > 0 ? vkData.wall.map((post, i) => {
+                  const photoUrl = getSafeHighResPhoto(post);
+                  const postText = getSafeText(post);
+                  const toggleKey = `wall_${post.id}`;
+                  const isExpanded = expandedText[toggleKey];
+                  
+                  if (!postText && !photoUrl) return null;
 
-                return (
-                  <div key={i} style={cardStyle}>
-                    {photoUrl && (
-                      <div 
-                        style={{ width: '100%', height: '160px', background: '#1e2026', cursor: 'zoom-in' }}
-                        onClick={() => setZoomedImg(photoUrl)}
-                      >
-                        <img src={photoUrl} alt="Пост ВК" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                      </div>
-                    )}
-                    <div style={{ padding: '15px', display: 'flex', flexDirection: 'column', flex: 1 }}>
-                      <div style={{ fontSize: '11px', color: '#ea580c', fontWeight: '700', marginBottom: '8px' }}>
-                        {post.date ? formatDate(post.date) : ''}
-                      </div>
-                      
-                      {postText && (
-                        <>
-                          <p style={{ fontSize: '12px', color: '#e4e4e7', lineHeight: '1.6', flex: 1, display: isExpanded ? 'block' : '-webkit-box', WebkitLineClamp: isExpanded ? 'unset' : 4, WebkitBoxOrient: 'vertical', overflow: isExpanded ? 'visible' : 'hidden', marginBottom: '5px', whiteSpace: 'pre-wrap' }}>
-                            {postText}
-                          </p>
-                          {postText.length > 100 && (
-                            <button onClick={() => toggleText(toggleKey)} style={{ background: 'none', border: 'none', color: '#ea580c', fontSize: '11px', cursor: 'pointer', textAlign: 'left', padding: 0, marginBottom: '15px', fontWeight: '600' }}>
-                              {isExpanded ? 'Свернуть текст ↑' : 'Читать полностью ↓'}
-                            </button>
-                          )}
-                        </>
+                  return (
+                    <div key={i} style={cardStyle}>
+                      {photoUrl && (
+                        <div 
+                          style={{ width: '100%', height: '160px', background: '#1e2026', cursor: 'zoom-in' }}
+                          onClick={() => setZoomedImg(photoUrl)}
+                        >
+                          <img src={photoUrl} alt="Пост ВК" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        </div>
                       )}
+                      <div style={{ padding: '15px', display: 'flex', flexDirection: 'column', flex: 1 }}>
+                        <div style={{ fontSize: '11px', color: '#ea580c', fontWeight: '700', marginBottom: '8px' }}>
+                          {post.date ? formatDate(post.date) : ''}
+                        </div>
+                        
+                        {postText && (
+                          <>
+                            <p style={{ fontSize: '12px', color: '#e4e4e7', lineHeight: '1.6', flex: 1, display: isExpanded ? 'block' : '-webkit-box', WebkitLineClamp: isExpanded ? 'unset' : 4, WebkitBoxOrient: 'vertical', overflow: isExpanded ? 'visible' : 'hidden', marginBottom: '5px', whiteSpace: 'pre-wrap' }}>
+                              {postText}
+                            </p>
+                            {postText.length > 100 && (
+                              <button onClick={() => toggleText(toggleKey)} style={{ background: 'none', border: 'none', color: '#ea580c', fontSize: '11px', cursor: 'pointer', textAlign: 'left', padding: 0, marginBottom: '15px', fontWeight: '600' }}>
+                                {isExpanded ? 'Свернуть текст ↑' : 'Читать полностью ↓'}
+                              </button>
+                            )}
+                          </>
+                        )}
 
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: 'auto' }}>
-                        <button onClick={() => scrollToForm(`Консультация по новости от ${post.date ? formatDate(post.date) : 'ВК'}`)} className="btn-solid" style={{ width: '100%', padding: '8px', fontSize: '11px' }}>Задать вопрос</button>
-                        <a href={`https://vk.com/wall${post.owner_id}_${post.id}`} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>
-                          <button className="btn-hollow" style={{ width: '100%', padding: '8px', fontSize: '11px', border: '1px solid rgba(255,255,255,0.2)' }}>Читать в сообществе ВК ↗</button>
-                        </a>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: 'auto' }}>
+                          <button onClick={() => scrollToForm(`Консультация по новости от ${post.date ? formatDate(post.date) : 'ВК'}`)} className="btn-solid" style={{ width: '100%', padding: '8px', fontSize: '11px' }}>Задать вопрос</button>
+                          <a href={`https://vk.com/wall${post.owner_id}_${post.id}`} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>
+                            <button className="btn-hollow" style={{ width: '100%', padding: '8px', fontSize: '11px', border: '1px solid rgba(255,255,255,0.2)' }}>Читать в сообществе ВК ↗</button>
+                          </a>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )
-              }) : <div style={{ color: '#a1a1aa', textAlign: 'center', gridColumn: '1 / -1' }}>На стене пока нет постов.</div>}
-            </div>
+                  )
+                }) : <div style={{ color: '#a1a1aa', textAlign: 'center', gridColumn: '1 / -1' }}>На стене пока нет постов.</div>}
+              </div>
+
+              {/* КНОПКА ПОКАЗАТЬ ЕЩЕ ДЛЯ НОВОСТЕЙ */}
+              {hasMore.wall && vkData.wall.length > 0 && (
+                <div style={{ textAlign: 'center', marginTop: '30px' }}>
+                  <button 
+                    onClick={() => loadMoreItems('wall')} 
+                    disabled={loadingMore === 'wall'}
+                    style={{ padding: '12px 24px', borderRadius: '12px', border: '1px solid rgba(234, 88, 12, 0.5)', color: '#ea580c', cursor: 'pointer', background: 'transparent', fontWeight: '600' }}
+                  >
+                    {loadingMore === 'wall' ? 'Загрузка...' : 'Показать ещё новости ↓'}
+                  </button>
+                </div>
+              )}
+            </>
           )}
 
         </div>
