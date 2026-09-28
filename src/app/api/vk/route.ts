@@ -63,16 +63,27 @@ export async function GET(request: Request) {
     return NextResponse.json(cached.data);
   }
 
-  vkParams.append('access_token', process.env.VK_TOKEN || '');
-  vkParams.append('v', '5.131');
+  // Сначала отдельный ключ сайта (VK_SITE_TOKEN), при ошибке — основной VK_TOKEN.
+  // Так сайт не зависит от ограничений аккаунта, через который идёт автопостинг.
+  const tokens = [process.env.VK_SITE_TOKEN, process.env.VK_TOKEN].filter(Boolean) as string[];
+
+  const callVK = async () => {
+    let last: any = null;
+    for (const token of tokens) {
+      const p = new URLSearchParams(vkParams);
+      p.append('access_token', token);
+      p.append('v', '5.131');
+      last = await fetch(`https://api.vk.com/method/${method}?${p.toString()}`).then((r) => r.json());
+      if (last && last.response !== undefined) return last;
+    }
+    return last;
+  };
 
   try {
     // одинаковые одновременные запросы идут в ВК один раз
     let pending = inFlight.get(key);
     if (!pending) {
-      pending = fetch(`https://api.vk.com/method/${method}?${vkParams.toString()}`)
-        .then((r) => r.json())
-        .finally(() => inFlight.delete(key));
+      pending = callVK().finally(() => inFlight.delete(key));
       inFlight.set(key, pending);
     }
     const data: any = await pending;
