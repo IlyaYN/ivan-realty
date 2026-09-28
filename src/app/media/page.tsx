@@ -156,7 +156,8 @@ export default function MediaPage() {
 
       setVkData(prev => ({
         ...prev,
-        [type]: [...prev[type], ...newItems]
+        // без дублей: если ВК вернул уже показанные записи, не добавляем их второй раз
+        [type]: [...prev[type], ...newItems.filter((n: any) => !prev[type].some((o: any) => o.id === n.id && o.owner_id === n.owner_id))]
       }));
 
       setOffsets(prev => ({ ...prev, [type]: currentOffset + 15 }));
